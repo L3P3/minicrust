@@ -6,7 +6,7 @@
 
 - Learn and practice Rust
 - Demonstrate ways to improve performance over JavaScript
-- Show off being smarter than [LFF5644](https://github.com/LFF5644)
+- Show off knowing more than [LFF5644](https://github.com/LFF5644)
 - Show off being faster than [Spickelbing](https://github.com/Spickelbing)
 
 ## Non-Goals
