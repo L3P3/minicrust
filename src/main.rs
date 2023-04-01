@@ -13,36 +13,35 @@ struct Pixel {
 	a: u8,
 }
 
-fn pixel_render(x: i32, y: i32) -> Pixel {
+fn pixel_render(x: usize, y: usize) -> Pixel {
 	// TODO
 	Pixel {
-		r: (x % 256) as u8,
-		g: (y % 256) as u8,
-		b: 0,
-		a: 255,
+		r: (x & 0xff) as u8,
+		g: (y & 0xff) as u8,
+		b: 0x00,
+		a: 0xff,
 	}
 }
 
 fn frame_render(
 	time_start: std::time::Instant,
 	pixels: &mut [Pixel],
-	xres: i32,
-	_yres: i32,
+	xres: usize,
+	_yres: usize,
 ) {
 	// move the pixels around (looks funny)
 	let time = time_start.elapsed().as_secs_f32();
-	let offset_x = (time.sin() * 50.0 + 25.0).round() as i32;
-	let offset_y = (time.cos() * 50.0 + 25.0).round() as i32;
+	let offset_x = (time.sin() * 50.0 + 50.0).round() as usize;
+	let offset_y = (time.cos() * 50.0 + 50.0).round() as usize;
 
-	// use rayon to use all cpu threads
-	pixels.par_iter_mut()
-		.enumerate()
-		.for_each(|(index, pixel)| {
-			let index = index as i32;
-			let x = index % xres + offset_x;
-			let y = index / xres + offset_y;
+	// render rows in parallel
+	pixels.par_chunks_exact_mut(xres).enumerate().for_each(|(y, line)| {
+		for (x, pixel) in line.iter_mut().enumerate() {
+			let x = x + offset_x;
+			let y = y + offset_y;
 			*pixel = pixel_render(x, y);
-		});
+		}
+	});
 }
 
 fn main() {
@@ -74,8 +73,8 @@ fn main() {
 	framebuffer::Framebuffer::set_kd_mode(framebuffer::KdMode::Graphics).unwrap();
 
 	let time_start = std::time::Instant::now();
-	let xres = framebuffer.var_screen_info.xres as i32;
-	let yres = framebuffer.var_screen_info.yres as i32;
+	let xres = framebuffer.var_screen_info.xres as usize;
+	let yres = framebuffer.var_screen_info.yres as usize;
 
 	while running.load(std::sync::atomic::Ordering::Relaxed) {
 		frame_render(
