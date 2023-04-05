@@ -6,8 +6,7 @@
 
 - Learn and practice Rust
 - Demonstrate ways to improve performance over JavaScript
-- Show off knowing more than [LFF5644](https://github.com/LFF5644)
-- Show off being faster than [Spickelbing](https://github.com/Spickelbing)
+- Being faster than [LFF5644](https://github.com/LFF5644) and [Spickelbing](https://github.com/Spickelbing)
 
 ## Non-Goals
 
@@ -28,6 +27,6 @@ This app is not using fancy stuff like windows but the bare linux framebuffer de
 
 ## Special thanks to ...
 
-- ChatGPT
-- GitHub Copilot
-- Google
+- [ChatGPT](https://chat.openai.com)
+- [GitHub Copilot](https://copilot.github.com)
+- [Google](https://google.com)
