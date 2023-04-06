@@ -47,7 +47,7 @@ impl Renderer {
 			a: 0xff,
 		}
 	}
-	
+
 	pub fn frame_render(
 		&mut self,
 		time: f32,
@@ -58,7 +58,7 @@ impl Renderer {
 		// move the pixels around (looks funny)
 		let offset_x = (time.sin() * 50.0 + 50.0).round() as usize;
 		let offset_y = (time.cos() * 50.0 + 50.0).round() as usize;
-	
+
 		// render rows in parallel
 		self.pixels.par_chunks_exact_mut(resolution_x).enumerate().for_each(|(y, line)| {
 			for (x, pixel) in line.iter_mut().enumerate() {
