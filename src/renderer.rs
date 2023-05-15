@@ -10,31 +10,17 @@ struct Pixel {
 }
 
 pub struct Renderer {
-	framebuffer: framebuffer::Framebuffer,
-	pixels: &'static mut [Pixel],
+	graphics_context: softbuffer::GraphicsContext,
+	pixels: Vec<Pixel>,
 }
 
 impl Renderer {
-	pub fn new() -> Self {
-		let mut framebuffer = framebuffer::Framebuffer::new("/dev/fb0")
-			.expect("cannot open framebuffer device");
-
-		// some toasters might differ
-		assert!(framebuffer.var_screen_info.bits_per_pixel == 32, "32 bpp only");
-
-		// hack our own mutable slice to prevent copying every frame
-		let pixels = unsafe {
-			std::slice::from_raw_parts_mut(
-				framebuffer.frame.as_mut_ptr() as *mut Pixel,
-				framebuffer.frame.len() / std::mem::size_of::<Pixel>(),
-			)
-		};
-
-		framebuffer::Framebuffer::set_kd_mode(framebuffer::KdMode::Graphics).unwrap();
-
+	pub fn new(
+		graphics_context: softbuffer::GraphicsContext,
+	) -> Self {
 		Self {
-			framebuffer,
-			pixels,
+			graphics_context,
+			pixels: vec![],
 		}
 	}
 
@@ -50,10 +36,19 @@ impl Renderer {
 
 	pub fn frame_render(
 		&mut self,
+		window: &winit::window::Window,
 		time: f32,
 	) {
-		let resolution_x = self.framebuffer.var_screen_info.xres as usize;
-		//let resolution_y = self.framebuffer.var_screen_info.yres as usize;
+		let inner_size = window.inner_size();
+		let resolution_x = inner_size.width as usize;
+		let resolution_y = inner_size.height as usize;
+
+		self.pixels.resize(resolution_x * resolution_y, Pixel {
+			r: 0x00,
+			g: 0x00,
+			b: 0x00,
+			a: 0xff,
+		});
 
 		// move the pixels around (looks funny)
 		let offset_x = (time.sin() * 50.0 + 50.0).round() as usize;
@@ -67,11 +62,18 @@ impl Renderer {
 				*pixel = Self::pixel_render(x, y);
 			}
 		});
-	}
-}
 
-impl Drop for Renderer {
-	fn drop(&mut self) {
-		framebuffer::Framebuffer::set_kd_mode(framebuffer::KdMode::Text).unwrap();
+		let buffer = unsafe {
+			std::slice::from_raw_parts(
+				self.pixels.as_ptr() as *const u32,
+				self.pixels.len(),
+			)
+		};
+
+		self.graphics_context.set_buffer(
+			buffer,
+			resolution_x as u16,
+			resolution_y as u16,
+		);
 	}
 }

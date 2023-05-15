@@ -1,33 +1,47 @@
-extern crate ctrlc;
-extern crate framebuffer;
 extern crate rayon;
+extern crate softbuffer;
+extern crate winit;
 
 mod constants;
 mod renderer;
 mod world;
 
 fn main() {
-	// handle ctrl+c, the fancy rust way
-	let running = std::sync::Arc::new(
-		std::sync::atomic::AtomicBool::new(true)
-	);
-	ctrlc::set_handler({
-		let running = running.clone();
-		move || {
-			running.store(false, std::sync::atomic::Ordering::Relaxed);
-		}
-	}).unwrap();
+	let event_loop = winit::event_loop::EventLoop::new();
+	let window = winit::window::WindowBuilder::new()
+		.with_title(format!("minicrust {}", env!("CARGO_PKG_VERSION")))
+		.build(&event_loop)
+		.unwrap();
+	let graphics_context = unsafe {
+		softbuffer::GraphicsContext::new(&window, &window)
+	}.unwrap();
 
-	let mut renderer = renderer::Renderer::new();
+	let mut renderer = renderer::Renderer::new(graphics_context);
 	let _world = world::World::new();
 	let time_start = std::time::Instant::now();
 
-	while running.load(std::sync::atomic::Ordering::Relaxed) {
-		let time = time_start.elapsed().as_secs_f32();
+	event_loop.run(move |event, _, control_flow| {
+		control_flow.set_poll();
 
-		renderer.frame_render(time);
+		match event {
+			winit::event::Event::WindowEvent {
+				event,
+				..
+			} => match event {
+				winit::event::WindowEvent::CloseRequested => {
+					control_flow.set_exit();
+				},
+				_ => {},
+			},
+			winit::event::Event::MainEventsCleared => {
+				window.request_redraw();
+			},
+			winit::event::Event::RedrawRequested(_) => {
+				let time = time_start.elapsed().as_secs_f32();
 
-		// TODO: use vsync
-		std::thread::sleep(std::time::Duration::from_millis(16));
-	}
+				renderer.frame_render(&window, time);
+			},
+			_ => {},
+		}
+	});
 }

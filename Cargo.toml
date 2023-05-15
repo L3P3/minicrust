@@ -3,21 +3,21 @@ name = "minicrust"
 authors = ["L3P3 <dev@l3p3.de>"]
 description = "cpu raytracing in rust"
 repository = "https://github.com/L3P3/minicrust"
-version = "0.1.2-wip"
+version = "0.1.2"
 edition = "2021"
 license = "zlib"
 
 [profile.release]
-opt-level = 3
+opt-level = "z"
 lto = true
 debug = false
 debug-assertions = false
 overflow-checks = false
 codegen-units = 1
 panic = "abort"
-strip = "symbols"
+strip = true
 
 [dependencies]
-ctrlc = "3.*"
-framebuffer = "0.3.*"
 rayon = "1.*"
+softbuffer = "0.2.*"
+winit = { version = "0.28.*", default-features = false, features = ["x11"] }
