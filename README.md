@@ -17,13 +17,9 @@
 
 ## How to use
 
-This app is not using fancy stuff like windows but the bare linux framebuffer device!
+Just run `minicrust` binary by double-clicking it.
 
-- Go into tty0 (ctrl+alt+f1)
-- Make sure your user has access to the fb0 device (`sudo usermod -aG video $USER`)
-- `./minicrust` or `cargo run` or whatever
-- Press ctrl+c to exit
-- Give this repo a star
+When in this project directory, run `cargo run`, as usual.
 
 ## Special thanks to ...
 
