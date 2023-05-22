@@ -3,6 +3,7 @@ name: Test
 on:
   push:
     branches: [ "main" ]
+    paths: [ "src/**", "Cargo.toml" ]
   pull_request:
     branches: [ "main" ]
 
@@ -10,7 +11,7 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  build:
+  test:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v3
