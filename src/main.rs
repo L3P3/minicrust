@@ -9,7 +9,7 @@ mod world;
 fn main() {
 	let event_loop = winit::event_loop::EventLoop::new();
 	let window = winit::window::WindowBuilder::new()
-		.with_title(format!("minicrust {}", env!("CARGO_PKG_VERSION")))
+		.with_title(format!("Minicrust {}", env!("CARGO_PKG_VERSION")))
 		.build(&event_loop)
 		.unwrap();
 	let graphics_context = unsafe {
@@ -37,9 +37,7 @@ fn main() {
 				window.request_redraw();
 			},
 			winit::event::Event::RedrawRequested(_) => {
-				let time = time_start.elapsed().as_secs_f32();
-
-				renderer.frame_render(&window, time);
+				renderer.frame_render(&window, time_start.elapsed());
 			},
 			_ => {},
 		}

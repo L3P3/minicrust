@@ -10,8 +10,11 @@ struct Pixel {
 }
 
 pub struct Renderer {
+	framerate_age: std::time::Duration,
+	framerate_counter: u32,
 	graphics_context: softbuffer::GraphicsContext,
 	pixels: Vec<Pixel>,
+	time_last: std::time::Duration,
 }
 
 impl Renderer {
@@ -19,8 +22,11 @@ impl Renderer {
 		graphics_context: softbuffer::GraphicsContext,
 	) -> Self {
 		Self {
+			framerate_age: std::time::Duration::new(0, 0),
+			framerate_counter: 0,
 			graphics_context,
 			pixels: vec![],
+			time_last: std::time::Duration::new(0, 0),
 		}
 	}
 
@@ -37,8 +43,26 @@ impl Renderer {
 	pub fn frame_render(
 		&mut self,
 		window: &winit::window::Window,
-		time: f32,
+		time: std::time::Duration,
 	) {
+		let time_delta = time - self.time_last;
+		self.time_last = time;
+
+		// framerate counter, title
+		self.framerate_age += time_delta;
+		self.framerate_counter += 1;
+		if self.framerate_age.as_millis() >= 1000 {
+			let title = format!(
+				"Minicrust {} — {} fps",
+				env!("CARGO_PKG_VERSION"),
+				self.framerate_counter,
+			);
+			window.set_title(&title);
+			self.framerate_age = std::time::Duration::new(0, 0);
+			self.framerate_counter = 0;
+		}
+
+		// screen size
 		let inner_size = window.inner_size();
 		let resolution_x = inner_size.width as usize;
 		let resolution_y = inner_size.height as usize;
@@ -51,8 +75,9 @@ impl Renderer {
 		});
 
 		// move the pixels around (looks funny)
-		let offset_x = (time.sin() * 50.0 + 50.0).round() as usize;
-		let offset_y = (time.cos() * 50.0 + 50.0).round() as usize;
+		let time_f32 = time.as_secs_f32();
+		let offset_x = (time_f32.sin() * 50.0 + 50.0).round() as usize;
+		let offset_y = (time_f32.cos() * 50.0 + 50.0).round() as usize;
 
 		// render rows in parallel
 		self.pixels.par_chunks_exact_mut(resolution_x).enumerate().for_each(|(y, line)| {
