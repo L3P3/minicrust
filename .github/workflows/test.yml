@@ -1,11 +1,11 @@
 name: Test
+# Tests if the code compiles and passes the tests
 
 on:
   push:
-    branches: [ "main" ]
     paths: [ "src/**", "Cargo.toml" ]
   pull_request:
-    branches: [ "main" ]
+    paths: [ "src/**", "Cargo.toml" ]
 
 env:
   CARGO_TERM_COLOR: always
@@ -16,5 +16,4 @@ jobs:
     steps:
     - uses: actions/checkout@v3
     - uses: Swatinem/rust-cache@v2
-    - name: Test
-      run: cargo test --verbose
+    - run: cargo test --verbose

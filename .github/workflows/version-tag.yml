@@ -1,0 +1,22 @@
+name: Version Tag
+# If the version in Cargo.toml is changed, this workflow will create a new tag
+
+on:
+  push:
+    branches: [ "main" ]
+    paths: [ "Cargo.toml" ]
+
+jobs:
+  version-tag:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+    - name: Read version from Cargo.toml
+      id: read-version
+      run: echo ::set-output name=version::$(cargo metadata --format-version 1 | jq -r '.packages[] | select(.name == "minicrust") | .version')
+    - name: Create tag
+      run: |
+        git config user.name github-actions
+        git config user.email github-actions@github.com
+        git tag "v${{ steps.read-version.outputs.version }}" || true
+        git push --tags || true
