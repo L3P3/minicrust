@@ -3,9 +3,9 @@ use rayon::prelude::*;
 #[derive(Clone, Copy)]
 #[allow(dead_code)]
 struct Pixel {
-	r: u8,
-	g: u8,
 	b: u8,
+	g: u8,
+	r: u8,
 	a: u8,
 }
 
@@ -35,8 +35,8 @@ impl Renderer {
 		Pixel {
 			r: (x & 0xff) as u8,
 			g: (y & 0xff) as u8,
-			b: 0x00,
-			a: 0xff,
+			b: 0xff,
+			a: 0x00,
 		}
 	}
 
@@ -71,7 +71,7 @@ impl Renderer {
 			r: 0x00,
 			g: 0x00,
 			b: 0x00,
-			a: 0xff,
+			a: 0x00,
 		});
 
 		// move the pixels around (looks funny)
