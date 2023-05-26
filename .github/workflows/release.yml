@@ -35,8 +35,12 @@ jobs:
       if: matrix.target == 'x86_64-pc-windows-gnu'
       run: sudo apt -y install mingw-w64
     - run: cargo build --verbose --release --target ${{ matrix.target }}
-    - name: Rename artifact
+    - name: Rename artifact (linux)
+      if: matrix.target != 'x86_64-pc-windows-gnu'
       run: mv target/${{ matrix.target }}/release/${{ github.event.repository.name }} ${{ github.event.repository.name }}-${{ matrix.target }}
+    - name: Rename artifact (windows)
+      if: matrix.target == 'x86_64-pc-windows-gnu'
+      run: mv target/${{ matrix.target }}/release/${{ github.event.repository.name }}.exe ${{ github.event.repository.name }}-${{ matrix.target }}.exe
     - uses: actions/upload-artifact@v3
       with:
         path: ${{ github.event.repository.name }}-${{ matrix.target }}
