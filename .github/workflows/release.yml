@@ -33,7 +33,7 @@ jobs:
         sudo apt 
         rustup target add ${{ matrix.target }}
     - name: Install build dependency for windows
-      if: matrix.target = 'x86_64-pc-windows-gnu'
+      if: matrix.target == 'x86_64-pc-windows-gnu'
       run: sudo apt -y install mingw-w64
     - run: cargo build --verbose --release --target ${{ matrix.target }}
     - name: Rename artifact
