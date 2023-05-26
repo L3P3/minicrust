@@ -43,7 +43,9 @@ jobs:
       run: mv target/${{ matrix.target }}/release/${{ github.event.repository.name }}.exe ${{ github.event.repository.name }}-${{ matrix.target }}.exe
     - uses: actions/upload-artifact@v3
       with:
-        path: ${{ github.event.repository.name }}-${{ matrix.target }}
+        path: |
+          ${{ github.event.repository.name }}-${{ matrix.target }}
+          ${{ github.event.repository.name }}-${{ matrix.target }}.exe
         retention-days: 1
   release:
     needs: build
