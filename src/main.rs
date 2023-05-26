@@ -1,3 +1,5 @@
+#![windows_subsystem = "windows"]
+
 extern crate rayon;
 extern crate softbuffer;
 extern crate winit;
