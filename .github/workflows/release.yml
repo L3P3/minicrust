@@ -30,7 +30,6 @@ jobs:
       run: |
         sudo apt update
         sudo apt -y install gcc-multilib
-        sudo apt 
         rustup target add ${{ matrix.target }}
     - name: Install build dependency for windows
       if: matrix.target == 'x86_64-pc-windows-gnu'
