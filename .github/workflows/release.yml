@@ -30,7 +30,11 @@ jobs:
       run: |
         sudo apt update
         sudo apt -y install gcc-multilib
+        sudo apt 
         rustup target add ${{ matrix.target }}
+    - name: Install build dependency for windows
+      if: matrix.target = 'x86_64-pc-windows-gnu'
+      run: sudo apt -y install mingw-w64
     - run: cargo build --verbose --release --target ${{ matrix.target }}
     - name: Rename artifact
       run: mv target/${{ matrix.target }}/release/${{ github.event.repository.name }} ${{ github.event.repository.name }}-${{ matrix.target }}
