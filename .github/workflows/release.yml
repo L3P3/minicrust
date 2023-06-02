@@ -21,31 +21,28 @@ jobs:
         - x86_64-unknown-linux-gnu
         - i686-unknown-linux-gnu
         - x86_64-pc-windows-gnu
+        - i686-pc-windows-gnu
     runs-on: ubuntu-latest
+    env:
+      binary_ext: ${{ matrix.target == 'x86_64-pc-windows-gnu' && '.exe' || matrix.target == 'i686-pc-windows-gnu' && '.exe' || '' }}
     steps:
     - uses: actions/checkout@v3
     - uses: Swatinem/rust-cache@v2
-    - name: Prepare cross-compiling
+    - name: Cross-compiling dependency
       if: matrix.target != 'x86_64-unknown-linux-gnu'
       run: |
         sudo apt update
         sudo apt -y install gcc-multilib
         rustup target add ${{ matrix.target }}
-    - name: Install build dependency for windows
-      if: matrix.target == 'x86_64-pc-windows-gnu'
+    - name: Windows dependency
+      if: matrix.target == 'x86_64-pc-windows-gnu' || matrix.target == 'i686-pc-windows-gnu'
       run: sudo apt -y install mingw-w64
     - run: cargo build --verbose --release --target ${{ matrix.target }}
-    - name: Rename artifact (linux)
-      if: matrix.target != 'x86_64-pc-windows-gnu'
-      run: mv target/${{ matrix.target }}/release/${{ github.event.repository.name }} ${{ github.event.repository.name }}-${{ matrix.target }}
-    - name: Rename artifact (windows)
-      if: matrix.target == 'x86_64-pc-windows-gnu'
-      run: mv target/${{ matrix.target }}/release/${{ github.event.repository.name }}.exe ${{ github.event.repository.name }}-${{ matrix.target }}.exe
+    - name: Rename/move artifact
+      run: mv target/${{ matrix.target }}/release/${{ github.event.repository.name }}${{ env.binary_ext }} ${{ github.event.repository.name }}-${{ matrix.target }}${{ env.binary_ext }}
     - uses: actions/upload-artifact@v3
       with:
-        path: |
-          ${{ github.event.repository.name }}-${{ matrix.target }}
-          ${{ github.event.repository.name }}-${{ matrix.target }}.exe
+        path: ${{ github.event.repository.name }}-${{ matrix.target }}${{ env.binary_ext }}
         retention-days: 1
   release:
     needs: build
