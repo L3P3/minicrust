@@ -1,0 +1,26 @@
+{
+	"version": "0.2.0",
+	"configurations": [
+		{
+			"type": "lldb",
+			"request": "launch",
+			"name": "Debug executable 'minicrust'",
+			"cargo": {
+				"args": [
+					"build",
+					"--bin=minicrust",
+					"--package=minicrust"
+				],
+				"filter": {
+					"name": "minicrust",
+					"kind": "bin"
+				}
+			},
+			"args": [],
+			"cwd": "${workspaceFolder}",
+			"env": {
+				"DISPLAY": "localhost:10.0"
+			}
+		}
+	]
+}

@@ -39,10 +39,10 @@ impl From<BlockType> for u8 {
 		block_type as u8
 	}
 }
-impl Into<BlockType> for u8 {
-	fn into(self) -> BlockType {
-		assert!(self <= BLOCK_TYPE_MAX as u8, "invalid block type");
-		unsafe { std::mem::transmute(self) }
+impl From<u8> for BlockType {
+	fn from(block_id: u8) -> BlockType {
+		assert!(block_id <= BLOCK_TYPE_MAX as u8, "invalid block type");
+		unsafe { std::mem::transmute(block_id) }
 	}
 }
 
