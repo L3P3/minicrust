@@ -23,42 +23,40 @@ impl World {
 
 	#[inline]
 	fn block_index_get(x: u16, y: u8, z: u16) -> usize {
-		(
-			(x as usize) << CHUNK_WIDTH_L2 | z as usize
-		) << CHUNK_HEIGHT_L2 | y as usize
+		assert!(y < CHUNK_HEIGHT as u8);
+		// TODO still assumes a single chunk width
+		// ((y as usize >> CHUNK_WIDTH_L2) & (CHUNK_HEIGHT / CHUNK_WIDTH - 1)) << (CHUNK_WIDTH_L2 * 3) |
+		// ((x as usize >> CHUNK_WIDTH_L2) & CHUNK_WIDTH_MASK) << (CHUNK_WIDTH_L2 * 4) |
+		// ((z as usize >> CHUNK_WIDTH_L2) & CHUNK_WIDTH_MASK) << (CHUNK_WIDTH_L2 * 3) |
+		// ((y as usize) & CHUNK_WIDTH_MASK) << (CHUNK_WIDTH_L2 * 2) |
+		// ((x as usize) & CHUNK_WIDTH_MASK) << CHUNK_WIDTH_L2 |
+		// (z as usize) & CHUNK_WIDTH_MASK
+		(y as usize) << (CHUNK_WIDTH_L2 * 2) |
+		((x as usize) & CHUNK_WIDTH_MASK) << CHUNK_WIDTH_L2 |
+		(z as usize) & CHUNK_WIDTH_MASK
 	}
 
 	#[inline]
-	pub unsafe fn block_get_unchecked_index (&self, index: usize) -> BlockType {
-		*self.blocks.get_unchecked(index)
-	}
-
-	#[inline]
-	pub unsafe fn block_get_unchecked(&self, x: u16, y: u8, z: u16) -> BlockType {
-		self.block_get_unchecked_index(Self::block_index_get(x, y, z))
-	}
-
-	#[allow(dead_code)]//todo
 	pub fn block_get(&self, x: u16, y: u8, z: u16) -> BlockType {
-		if y < CHUNK_HEIGHT as u8 &&
-			x < CHUNK_WIDTH as u16 &&
-			z < CHUNK_WIDTH as u16 {
-			unsafe {
-				self.block_get_unchecked(x, y, z)
-			}
-		}
-		else {
-			BlockType::Air
+		// save because block_index_get bounds checks
+		unsafe {
+			*self.blocks.get_unchecked(Self::block_index_get(x, y, z))
 		}
 	}
 
 	pub fn chunk_generate(&mut self) {
-		for (counter, strip) in self.blocks.chunks_exact_mut(CHUNK_HEIGHT).enumerate() {
-			strip[..WORLD_FLATMAP_TEMPLATE.len()]
-				.copy_from_slice(&WORLD_FLATMAP_TEMPLATE);
+		for x in 0..CHUNK_WIDTH as u16 {
+			for z in 0..CHUNK_WIDTH as u16 {
+				for (y, block) in WORLD_FLATMAP_TEMPLATE.iter().copied().enumerate() {
+					let index = Self::block_index_get(x, y as u8, z);
+					self.blocks[index] = block;
+				}
 
-			if counter & 0x10 == 0 && counter & 0x1 == 0 {
-				strip[10] = BlockType::Wool;
+				let counter = (x as usize) << CHUNK_WIDTH_L2 | z as usize;
+				if counter & 0x10 == 0 && counter & 0x1 == 0 {
+					let index = Self::block_index_get(x, 10, z);
+					self.blocks[index] = BlockType::Wool;
+				}
 			}
 		}
 	}

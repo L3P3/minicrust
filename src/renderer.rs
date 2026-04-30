@@ -1,3 +1,4 @@
+use num_integer::Roots;
 use rayon::prelude::*;
 
 use crate::constants::*;
@@ -11,8 +12,6 @@ struct Pixel {
 	r: u8,
 	a: u8,
 }
-
-const CHUNK_WIDTH_MASK: u16 = CHUNK_WIDTH as u16 - 1;
 
 const DIMENSION_Y: u8 = 0;
 const DIMENSION_X: u8 = 1;
@@ -102,7 +101,7 @@ impl Renderer {
 		let angle_h_vec = (angle_h.sin(), angle_h.cos());
 
 		// render rows in parallel
-		self.pixels.chunks_exact_mut(resolution_x).enumerate().for_each(|(canvas_y, line)| {
+		self.pixels.par_chunks_exact_mut(resolution_x).enumerate().for_each(|(canvas_y, line)| {
 			let canvas_y_relative = (resolution_y_h - canvas_y as f32) * fov_step;
 			let step_y_raw = canvas_y_relative * angle_v_vec.1 - angle_v_vec.0;
 			let angle_v = canvas_y_relative * angle_v_vec.0 + angle_v_vec.1;
@@ -110,13 +109,13 @@ impl Renderer {
 			let step_z_center = angle_v * angle_h_vec.1;
 			let step_y_primary: i8 = if step_y_raw < 0.0 { -1 } else { 1 };
 			let step_y_inverse = if step_y_raw != 0.0 { 1.0 / step_y_raw.abs() } else { 0.0 };
-			let mut dimension_next: u8 = DIMENSION_Z;
+			let mut dimension_next: u8 = DIMENSION_X;
 
 			for (canvas_x, pixel) in line.iter_mut().enumerate() {
 				let canvas_x_relative = (canvas_x as f32 - resolution_x_h) * fov_step;
 				let step_x_raw = step_x_center + canvas_x_relative * angle_h_vec.1;
 				let step_z_raw = step_z_center - canvas_x_relative * angle_h_vec.0;
-				let dimension_offset = DIMENSION_Z;//dimension_next;
+				let dimension_offset = dimension_next;
 
 				*pixel = if step_y_primary < 0 {
 					Pixel {
@@ -136,23 +135,24 @@ impl Renderer {
 
 				let mut check_distance_min: u32 = view_distance;
 
-				for dimension in 0..2u8 {
+				for dimension in 0..3u8 {
 					match (dimension + dimension_offset) % 3 {
 						DIMENSION_Y => {
 							if step_y_raw == 0.0 {
 								continue;
 							}
 
-							let step_x: f32 = step_x_raw * step_y_inverse;
-							let step_z: f32 = step_z_raw * step_y_inverse;
-							let step_diagonal: u32 = ((step_x.powi(2) + step_z.powi(2) + 1.0).sqrt() * 256.0) as u32;
+							let step_x: i32 = (step_x_raw * step_y_inverse * 256.0).round() as i32;
+							let step_z: i32 = (step_z_raw * step_y_inverse * 256.0).round() as i32;
 
+							let step_diagonal: u32 = (
+								(step_x * step_x) as u32 +
+								(step_z * step_z) as u32 +
+								256u32 * 256u32
+							).sqrt();
 							if step_diagonal > check_distance_min {
 								continue;
 							}
-
-							let step_x: i32 = (step_x * 256.0).round() as i32;
-							let step_z: i32 = (step_z * 256.0).round() as i32;
 
 							// start position
 							let mut offset: u8 = position_y as u8;
@@ -168,7 +168,7 @@ impl Renderer {
 							// add steps until collision or out of range
 							while check_distance < check_distance_min {
 								// move on
-								check_y = check_y.wrapping_add(step_y_primary);
+								check_y += step_y_primary;
 
 								// check if inside world
 								match
@@ -186,18 +186,11 @@ impl Renderer {
 
 									// inside world
 									0b000 | 0b100 => {
-										let check_x_i = (check_x >> 8) as u16 & CHUNK_WIDTH_MASK;
-										let check_y_i = check_y as u8;
-										let check_z_i = (check_z >> 8) as u16 & CHUNK_WIDTH_MASK;
-
-										// save since xyz are in range
-										let block = unsafe {
-											world.block_get_unchecked(
-												check_x_i,
-												check_y_i,
-												check_z_i,
-											)
-										};
+										let block = world.block_get(
+											(check_x >> 8) as u16,
+											check_y as u8,
+											(check_z >> 8) as u16,
+										);
 
 										if block != BlockType::Air {
 											// collision
@@ -219,9 +212,9 @@ impl Renderer {
 								}
 
 								// no collision yet, move on
-								check_x = check_x.wrapping_add(step_x);
-								check_z = check_z.wrapping_add(step_z);
-								check_distance = check_distance.wrapping_add(step_diagonal);
+								check_x += step_x;
+								check_z += step_z;
+								check_distance += step_diagonal;
 							}
 						},
 
@@ -231,17 +224,19 @@ impl Renderer {
 							}
 
 							let step_x_inverse = 1.0_f32 / step_x_raw.abs();
-							let step_y: f32 = step_y_raw * step_x_inverse;
-							let step_z: f32 = step_z_raw * step_x_inverse;
-							let step_diagonal: u32 = ((step_y.powi(2) + step_z.powi(2) + 1.0).sqrt() * 256.0) as u32;
+							let step_y: i32 = (step_y_raw * step_x_inverse * 256.0).round() as i32;
+							let step_z: i32 = (step_z_raw * step_x_inverse * 256.0).round() as i32;
 
+							let step_diagonal: u32 = (
+								(step_y * step_y) as u32 +
+								(step_z * step_z) as u32 +
+								256u32 * 256u32
+							).sqrt();
 							if step_diagonal > check_distance_min {
 								continue;
 							}
 
-							let step_x: i16 = if step_x_raw < 0.0 { -1 } else { 1 };
-							let step_y: i32 = (step_y * 256.0).round() as i32;
-							let step_z: i32 = (step_z * 256.0).round() as i32;
+							let step_x: i16 = 1 - 2 * ((step_x_raw < 0.0) as i16);
 
 							// start position
 							let mut offset: u8 = position_x as u8;
@@ -257,7 +252,7 @@ impl Renderer {
 							// add steps until collision or out of range
 							while check_distance < check_distance_min {
 								// move on
-								check_x = check_x.wrapping_add(step_x);
+								check_x += step_x;
 
 								// check if inside world
 								match
@@ -275,18 +270,11 @@ impl Renderer {
 
 									// inside world
 									0b000 | 0b100 => {
-										let check_x_i = check_x as u16 & CHUNK_WIDTH_MASK;
-										let check_y_i = (check_y >> 8) as u8;
-										let check_z_i = (check_z >> 8) as u16 & CHUNK_WIDTH_MASK;
-
-										// save since xyz are in range
-										let block = unsafe {
-											world.block_get_unchecked(
-												check_x_i,
-												check_y_i,
-												check_z_i,
-											)
-										};
+										let block = world.block_get(
+											check_x as u16,
+											(check_y >> 8) as u8,
+											(check_z >> 8) as u16,
+										);
 
 										if block != BlockType::Air {
 											// collision
@@ -308,9 +296,9 @@ impl Renderer {
 								}
 
 								// no collision yet, move on
-								check_y = check_y.wrapping_add(step_y);
-								check_z = check_z.wrapping_add(step_z);
-								check_distance = check_distance.wrapping_add(step_diagonal);
+								check_y += step_y;
+								check_z += step_z;
+								check_distance += step_diagonal;
 							}
 						},
 
@@ -320,17 +308,19 @@ impl Renderer {
 							}
 
 							let step_z_inverse = 1.0_f32 / step_z_raw.abs();
-							let step_x: f32 = step_x_raw * step_z_inverse;
-							let step_y: f32 = step_y_raw * step_z_inverse;
-							let step_diagonal: u32 = ((step_x.powi(2) + step_y.powi(2) + 1.0).sqrt() * 256.0) as u32;
+							let step_x: i32 = (step_x_raw * step_z_inverse * 256.0).round() as i32;
+							let step_y: i32 = (step_y_raw * step_z_inverse * 256.0).round() as i32;
 
+							let step_diagonal: u32 = (
+								(step_x * step_x) as u32 +
+								(step_y * step_y) as u32 +
+								256u32 * 256u32
+							).sqrt();
 							if step_diagonal > check_distance_min {
 								continue;
 							}
 
-							let step_z: i16 = if step_z_raw < 0.0 { -1 } else { 1 };
-							let step_x: i32 = (step_x * 256.0).round() as i32;
-							let step_y: i32 = (step_y * 256.0).round() as i32;
+							let step_z: i16 = 1 - 2 * ((step_z_raw < 0.0) as i16);
 
 							// start position
 							let mut offset: u8 = position_z as u8;
@@ -346,7 +336,7 @@ impl Renderer {
 							// add steps until collision or out of range
 							while check_distance < check_distance_min {
 								// move on
-								check_z = check_z.wrapping_add(step_z);
+								check_z += step_z;
 
 								// check if inside world
 								match
@@ -359,23 +349,16 @@ impl Renderer {
 									0b101 => break, // step_y < 0.0 && check_y < 0.0
 
 									// will maybe reach a block later
-									0b001 | // step_y
-									0b110 => {}, // step_y
+									0b001 | // step_y > 0.0 && check_y < 0.0
+									0b110 => {}, // step_y < 0.0 && check_y >= CHUNK_HEIGHT
 
 									// inside world
 									0b000 | 0b100 => {
-										let check_x_i = (check_x >> 8) as u16 & CHUNK_WIDTH_MASK;
-										let check_y_i = (check_y >> 8) as u8;
-										let check_z_i = check_z as u16 & CHUNK_WIDTH_MASK;
-
-										// save since xyz are in range
-										let block = unsafe {
-											world.block_get_unchecked(
-												check_x_i,
-												check_y_i,
-												check_z_i,
-											)
-										};
+										let block = world.block_get(
+											(check_x >> 8) as u16,
+											(check_y >> 8) as u8,
+											check_z as u16,
+										);
 
 										if block != BlockType::Air {
 											// collision
@@ -397,9 +380,9 @@ impl Renderer {
 								}
 
 								// no collision yet, move on
-								check_x = check_x.wrapping_add(step_x);
-								check_y = check_y.wrapping_add(step_y);
-								check_distance = check_distance.wrapping_add(step_diagonal);
+								check_x += step_x;
+								check_y += step_y;
+								check_distance += step_diagonal;
 							}
 						},
 

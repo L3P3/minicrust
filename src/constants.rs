@@ -5,6 +5,7 @@ pub const CHUNK_HEIGHT_FACTOR_L2: u8 = 2;
 pub const CHUNK_HEIGHT_L2: u8 = CHUNK_WIDTH_L2 + CHUNK_HEIGHT_FACTOR_L2;
 
 pub const CHUNK_WIDTH: usize = 1 << CHUNK_WIDTH_L2;
+pub const CHUNK_WIDTH_MASK: usize = CHUNK_WIDTH - 1;
 pub const CHUNK_HEIGHT_FACTOR: usize = 1 << CHUNK_HEIGHT_FACTOR_L2;
 pub const CHUNK_HEIGHT: usize = 1 << CHUNK_HEIGHT_L2;
 
