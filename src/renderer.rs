@@ -107,16 +107,18 @@ impl Renderer {
 			let angle_v = canvas_y_relative * angle_v_vec.0 + angle_v_vec.1;
 			let step_x_center = angle_v * angle_h_vec.0;
 			let step_z_center = angle_v * angle_h_vec.1;
-			let step_y_primary: i8 = if step_y_raw < 0.0 { -1 } else { 1 };
-			let step_y_inverse = if step_y_raw != 0.0 { 1.0 / step_y_raw.abs() } else { 0.0 };
+			let step_y_primary: i8 = 1 - 2 * ((step_y_raw < 0.0) as i8);
+			let step_y_inverse = 1.0 / step_y_raw.abs();
 			let mut dimension_next: u8 = DIMENSION_X;
 
+			// render row pixels sequentially
 			for (canvas_x, pixel) in line.iter_mut().enumerate() {
 				let canvas_x_relative = (canvas_x as f32 - resolution_x_h) * fov_step;
 				let step_x_raw = step_x_center + canvas_x_relative * angle_h_vec.1;
 				let step_z_raw = step_z_center - canvas_x_relative * angle_h_vec.0;
 				let dimension_offset = dimension_next;
 
+				// black/blue skybox
 				*pixel = if step_y_primary < 0 {
 					Pixel {
 						r: 0x00,
