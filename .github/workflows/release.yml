@@ -4,7 +4,7 @@ name: Release
 on:
   push:
     tags:
-    - 'v[0-9]+.[0-9]+.[0-9]+'
+      - 'v[0-9]+.[0-9]+.[0-9]+'
   workflow_dispatch:
 
 permissions:
@@ -18,39 +18,60 @@ jobs:
     strategy:
       matrix:
         target:
-        - x86_64-unknown-linux-gnu
-        - i686-unknown-linux-gnu
-        - x86_64-pc-windows-gnu
-        - i686-pc-windows-gnu
+          - x86_64-unknown-linux-gnu
+          - i686-unknown-linux-gnu
+          - x86_64-pc-windows-gnu
+          - i686-pc-windows-gnu
     runs-on: ubuntu-latest
+    name: Build ${{ matrix.target }}
     env:
       binary_ext: ${{ matrix.target == 'x86_64-pc-windows-gnu' && '.exe' || matrix.target == 'i686-pc-windows-gnu' && '.exe' || '' }}
     steps:
-    - uses: actions/checkout@v3
-    - uses: Swatinem/rust-cache@v2
-    - name: Cross-compiling dependency
-      if: matrix.target != 'x86_64-unknown-linux-gnu'
-      run: |
-        sudo apt update
-        sudo apt -y install gcc-multilib
-        rustup target add ${{ matrix.target }}
-    - name: Windows dependency
-      if: matrix.target == 'x86_64-pc-windows-gnu' || matrix.target == 'i686-pc-windows-gnu'
-      run: sudo apt -y install mingw-w64
-    - run: cargo build --verbose --release --target ${{ matrix.target }}
-    - name: Rename/move artifact
-      run: mv target/${{ matrix.target }}/release/${{ github.event.repository.name }}${{ env.binary_ext }} ${{ github.event.repository.name }}-${{ matrix.target }}${{ env.binary_ext }}
-    - uses: actions/upload-artifact@v3
-      with:
-        path: ${{ github.event.repository.name }}-${{ matrix.target }}${{ env.binary_ext }}
-        retention-days: 1
+      - name: Checkout
+        uses: actions/checkout@main
+
+      - name: Setup Rust cache
+        uses: Swatinem/rust-cache@master
+
+      - name: Install cross-compilation dependencies
+        if: matrix.target != 'x86_64-unknown-linux-gnu'
+        run: |
+          sudo apt update
+          sudo apt -y install gcc-multilib
+          rustup target add ${{ matrix.target }}
+
+      - name: Install Windows dependencies
+        if: matrix.target == 'x86_64-pc-windows-gnu' || matrix.target == 'i686-pc-windows-gnu'
+        run: sudo apt -y install mingw-w64
+
+      - name: Build
+        run: cargo build --verbose --release --target ${{ matrix.target }}
+
+      - name: Rename artifact
+        run: mv target/${{ matrix.target }}/release/${{ github.event.repository.name }}${{ env.binary_ext }} ${{ github.event.repository.name }}-${{ matrix.target }}${{ env.binary_ext }}
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@main
+        with:
+          name: ${{ github.event.repository.name }}-${{ matrix.target }}${{ env.binary_ext }}
+          path: ${{ github.event.repository.name }}-${{ matrix.target }}${{ env.binary_ext }}
+          retention-days: 1
+
   release:
     needs: build
     runs-on: ubuntu-latest
+    name: Draft release
     steps:
-    - uses: actions/checkout@v3
-    - uses: actions/download-artifact@v3
-    - name: Create release
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      run: gh release create --draft --prerelease --title ${GITHUB_REF#refs/*/} ${{ github.ref }} artifact/*
+      - name: Checkout
+        uses: actions/checkout@main
+
+      - name: Download artifacts
+        uses: actions/download-artifact@main
+        with:
+          path: artifact
+          merge-multiple: true
+
+      - name: Create release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release create --draft --prerelease --title ${GITHUB_REF#refs/*/} ${{ github.ref }} artifact/*
