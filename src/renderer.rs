@@ -16,6 +16,7 @@ struct Pixel {
 const DIMENSION_Y: u8 = 0;
 const DIMENSION_X: u8 = 1;
 const DIMENSION_Z: u8 = 2;
+const STEP_RAW_MIN: f32 = 1.0 / 64.0;
 
 pub struct Renderer {
 	framerate_age: std::time::Duration,
@@ -140,7 +141,7 @@ impl Renderer {
 				for dimension in 0..3u8 {
 					match (dimension + dimension_offset) % 3 {
 						DIMENSION_Y => {
-							if step_y_raw == 0.0 {
+							if step_y_raw.abs() < STEP_RAW_MIN {
 								continue;
 							}
 
@@ -152,23 +153,19 @@ impl Renderer {
 								(step_z * step_z) as u32 +
 								256u32 * 256u32
 							).sqrt();
-							if step_diagonal > check_distance_min {
-								continue;
-							}
 
 							// start position
-							let mut offset: u8 = position_y as u8;
-							if step_y_primary > 0 {
-								offset = !offset;
+							let offset: u8 = (position_y as u8) ^ ((step_y_primary > 0) as u8).wrapping_neg();
+							let mut check_distance: u32 = (step_diagonal * offset as u32) >> 8;
+							if check_distance >= check_distance_min {
+								continue;
 							}
-
-							let mut check_y = (position_y >> 8) as i8;// TODO: sometimes subtract offset
+							let mut check_y = (position_y >> 8) as i8;
 							let mut check_x: i32 = position_x + ((step_x * offset as i32) >> 8);
 							let mut check_z: i32 = position_z + ((step_z * offset as i32) >> 8);
-							let mut check_distance: u32 = (step_diagonal * offset as u32) >> 8;
 
 							// add steps until collision or out of range
-							while check_distance < check_distance_min {
+							loop {
 								// move on
 								check_y += step_y_primary;
 
@@ -217,11 +214,15 @@ impl Renderer {
 								check_x += step_x;
 								check_z += step_z;
 								check_distance += step_diagonal;
+
+								if check_distance >= check_distance_min {
+									break;
+								}
 							}
 						},
 
 						DIMENSION_X => {
-							if step_x_raw == 0.0 {
+							if step_x_raw.abs() < STEP_RAW_MIN {
 								continue;
 							}
 
@@ -234,25 +235,21 @@ impl Renderer {
 								(step_z * step_z) as u32 +
 								256u32 * 256u32
 							).sqrt();
-							if step_diagonal > check_distance_min {
-								continue;
-							}
 
 							let step_x: i16 = 1 - 2 * ((step_x_raw < 0.0) as i16);
 
 							// start position
-							let mut offset: u8 = position_x as u8;
-							if step_x_raw > 0.0 {
-								offset = !offset;
+							let offset: u8 = (position_x as u8) ^ ((step_x_raw > 0.0) as u8).wrapping_neg();
+							let mut check_distance: u32 = (step_diagonal * offset as u32) >> 8;
+							if check_distance >= check_distance_min {
+								continue;
 							}
-
 							let mut check_x = (position_x >> 8) as i16;
 							let mut check_y: i32 = position_y as i32 + ((step_y * offset as i32) >> 8);
 							let mut check_z: i32 = position_z + ((step_z * offset as i32) >> 8);
-							let mut check_distance: u32 = (step_diagonal * offset as u32) >> 8;
 
 							// add steps until collision or out of range
-							while check_distance < check_distance_min {
+							loop {
 								// move on
 								check_x += step_x;
 
@@ -301,11 +298,15 @@ impl Renderer {
 								check_y += step_y;
 								check_z += step_z;
 								check_distance += step_diagonal;
+
+								if check_distance >= check_distance_min {
+									break;
+								}
 							}
 						},
 
 						DIMENSION_Z => {
-							if step_z_raw == 0.0 {
+							if step_z_raw.abs() < STEP_RAW_MIN {
 								continue;
 							}
 
@@ -318,25 +319,21 @@ impl Renderer {
 								(step_y * step_y) as u32 +
 								256u32 * 256u32
 							).sqrt();
-							if step_diagonal > check_distance_min {
-								continue;
-							}
 
 							let step_z: i16 = 1 - 2 * ((step_z_raw < 0.0) as i16);
 
 							// start position
-							let mut offset: u8 = position_z as u8;
-							if step_z_raw > 0.0 {
-								offset = !offset;
+							let offset: u8 = (position_z as u8) ^ ((step_z_raw > 0.0) as u8).wrapping_neg();
+							let mut check_distance: u32 = (step_diagonal * offset as u32) >> 8;
+							if check_distance >= check_distance_min {
+								continue;
 							}
-
 							let mut check_x: i32 = position_x + ((step_x * offset as i32) >> 8);
 							let mut check_y: i32 = position_y as i32 + ((step_y * offset as i32) >> 8);
 							let mut check_z = (position_z >> 8) as i16;
-							let mut check_distance: u32 = (step_diagonal * offset as u32) >> 8;
 
 							// add steps until collision or out of range
-							while check_distance < check_distance_min {
+							loop {
 								// move on
 								check_z += step_z;
 
@@ -385,6 +382,10 @@ impl Renderer {
 								check_x += step_x;
 								check_y += step_y;
 								check_distance += step_diagonal;
+
+								if check_distance >= check_distance_min {
+									break;
+								}
 							}
 						},
 
