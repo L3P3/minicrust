@@ -7,6 +7,7 @@ on:
       - 'main'
     paths:
       - 'Cargo.toml'
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -21,11 +22,11 @@ jobs:
 
       - name: Read version from Cargo.toml
         id: read-version
-        run: echo "version=$(cargo metadata --format-version 1 | jq -r '.packages[] | select(.name == \"minicrust\") | .version')" >> "$GITHUB_OUTPUT"
+        run: node -e "process.stdout.write('version=' + require('fs').readFileSync('Cargo.toml','utf8').match(/^version\\s*=\\s*\"([^\"]+)\"/m)[1] + '\n')" >> "$GITHUB_OUTPUT"
 
       - name: Create tag
         run: |
           git config user.name github-actions
           git config user.email github-actions@github.com
-          git tag "v${{ steps.read-version.outputs.version }}" || true
-          git push --tags || true
+          git tag --force "v${{ steps.read-version.outputs.version }}"
+          git push --force --tags
