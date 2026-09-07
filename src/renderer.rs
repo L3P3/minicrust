@@ -1,9 +1,15 @@
+use std::rc::Rc;
+
 use num_integer::Roots;
 use rayon::prelude::*;
+use winit::window::Window;
 
 use crate::constants::*;
 use crate::player;
 
+type SoftSurface = softbuffer::Surface<Rc<Window>, Rc<Window>>;
+
+#[repr(C)]
 #[derive(Clone, Copy)]
 #[allow(dead_code)]
 struct Pixel {
@@ -13,28 +19,40 @@ struct Pixel {
 	a: u8,
 }
 
+impl Pixel {
+	#[inline(always)]
+	const fn rgb(r: u8, g: u8, b: u8) -> Self {
+		Self { r, g, b, a: 0x00 }
+	}
+
+}
+
 const DIMENSION_Y: u8 = 0;
 const DIMENSION_X: u8 = 1;
 const DIMENSION_Z: u8 = 2;
 const STEP_RAW_MIN: f32 = 1.0 / 64.0;
 
+const COLOR_BLACK: Pixel = Pixel::rgb(0x00, 0x00, 0x00);
+const COLOR_SKY: Pixel = Pixel::rgb(0x84, 0xb1, 0xff);
+const COLOR_HIT_Y: Pixel = Pixel::rgb(0x00, 0xff, 0x00);
+const COLOR_HIT_X: Pixel = Pixel::rgb(0xff, 0x00, 0x00);
+const COLOR_HIT_Z: Pixel = Pixel::rgb(0x00, 0x00, 0xff);
+
 pub struct Renderer {
 	framerate_age: std::time::Duration,
 	framerate_counter: u32,
-	graphics_context: softbuffer::GraphicsContext,
-	pixels: Vec<Pixel>,
+	surface: SoftSurface,
 	time_last: std::time::Duration,
 }
 
 impl Renderer {
 	pub fn new(
-		graphics_context: softbuffer::GraphicsContext,
+		surface: SoftSurface,
 	) -> Self {
 		Self {
 			framerate_age: std::time::Duration::new(0, 0),
 			framerate_counter: 0,
-			graphics_context,
-			pixels: vec![],
+			surface,
 			time_last: std::time::Duration::new(0, 0),
 		}
 	}
@@ -80,12 +98,12 @@ impl Renderer {
 		let resolution_x_h = (resolution_x >> 1) as f32;
 		let resolution_y_h = (resolution_y >> 1) as f32;
 
-		self.pixels.resize(resolution_x * resolution_y, Pixel {
-			r: 0x00,
-			g: 0x00,
-			b: 0x00,
-			a: 0x00,
-		});
+		self.surface
+			.resize(
+				unsafe { std::num::NonZeroU32::new_unchecked(resolution_x as u32) },
+				unsafe { std::num::NonZeroU32::new_unchecked(resolution_y as u32) },
+			)
+			.unwrap();
 
 		// TODO placeholders
 		let fov = 80.0_f32 / 45.0_f32; // TODO
@@ -101,8 +119,16 @@ impl Renderer {
 		let angle_v_vec = (angle_v.sin(), angle_v.cos());
 		let angle_h_vec = (angle_h.sin(), angle_h.cos());
 
+		// zauber a pixel buffer from the surface
+		let mut buffer = self.surface.buffer_mut().unwrap();
+		let pixels: &mut [Pixel] = unsafe {
+			std::slice::from_raw_parts_mut(
+				buffer.as_mut_ptr().cast::<Pixel>(),
+				buffer.len()
+			)
+		};
 		// render rows in parallel
-		self.pixels.par_chunks_exact_mut(resolution_x).enumerate().for_each(|(canvas_y, line)| {
+		pixels.par_chunks_exact_mut(resolution_x).enumerate().for_each(|(canvas_y, line)| {
 			let canvas_y_relative = (resolution_y_h - canvas_y as f32) * fov_step;
 			let step_y_raw = canvas_y_relative * angle_v_vec.1 - angle_v_vec.0;
 			let angle_v = canvas_y_relative * angle_v_vec.0 + angle_v_vec.1;
@@ -120,21 +146,7 @@ impl Renderer {
 				let dimension_offset = dimension_next;
 
 				// black/blue skybox
-				*pixel = if step_y_primary < 0 {
-					Pixel {
-						r: 0x00,
-						g: 0x00,
-						b: 0x00,
-						a: 0x00,
-					}
-				} else {
-					Pixel {
-						r: 0x84,
-						g: 0xb1,
-						b: 0xff,
-						a: 0x00,
-					}
-				};
+				*pixel = if step_y_primary < 0 { COLOR_BLACK } else { COLOR_SKY };
 
 				let mut check_distance_min: u32 = view_distance;
 
@@ -193,12 +205,7 @@ impl Renderer {
 
 										if block != BlockType::Air {
 											// collision
-											*pixel = Pixel {
-												r: 0x00,
-												g: 0xff,
-												b: 0x00,
-												a: 0x00,
-											};
+											*pixel = COLOR_HIT_Y;
 											check_distance_min = check_distance;
 											dimension_next = DIMENSION_Y;
 											break;
@@ -277,12 +284,7 @@ impl Renderer {
 
 										if block != BlockType::Air {
 											// collision
-											*pixel = Pixel {
-												r: 0xff,
-												g: 0x00,
-												b: 0x00,
-												a: 0x00,
-											};
+											*pixel = COLOR_HIT_X;
 											check_distance_min = check_distance;
 											dimension_next = DIMENSION_X;
 											break;
@@ -361,12 +363,7 @@ impl Renderer {
 
 										if block != BlockType::Air {
 											// collision
-											*pixel = Pixel {
-												r: 0x00,
-												g: 0x00,
-												b: 0xff,
-												a: 0x00,
-											};
+											*pixel = COLOR_HIT_Z;
 											check_distance_min = check_distance;
 											dimension_next = DIMENSION_Z;
 											break;
@@ -395,19 +392,6 @@ impl Renderer {
 			}
 		});
 
-		// Pixel -> u32
-		let buffer = unsafe {
-			std::slice::from_raw_parts(
-				self.pixels.as_ptr() as *const u32,
-				self.pixels.len(),
-			)
-		};
-
-		// copy :(
-		self.graphics_context.set_buffer(
-			buffer,
-			resolution_x as u16,
-			resolution_y as u16,
-		);
+		buffer.present().unwrap();
 	}
 }
