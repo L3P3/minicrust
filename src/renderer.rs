@@ -1,6 +1,5 @@
 use std::rc::Rc;
 
-use num_integer::Roots;
 use rayon::prelude::*;
 use winit::window::Window;
 
@@ -11,7 +10,6 @@ type SoftSurface = softbuffer::Surface<Rc<Window>, Rc<Window>>;
 
 #[repr(C)]
 #[derive(Clone, Copy)]
-#[allow(dead_code)]
 struct Pixel {
 	b: u8,
 	g: u8,
@@ -25,18 +23,32 @@ impl Pixel {
 		Self { r, g, b, a: 0x00 }
 	}
 
+	fn scale(&self, factor: f32) -> Self {
+		Self {
+			r: (self.r as f32 * factor).round() as u8,
+			g: (self.g as f32 * factor).round() as u8,
+			b: (self.b as f32 * factor).round() as u8,
+			a: self.a,
+		}
+	}
 }
 
-const DIMENSION_Y: u8 = 0;
-const DIMENSION_X: u8 = 1;
-const DIMENSION_Z: u8 = 2;
-const STEP_RAW_MIN: f32 = 1.0 / 64.0;
+#[derive(Clone, Copy)]
+enum BlockFace {
+	East,
+	West,
+	Top,
+	Bottom,
+	North,
+	South,
+}
 
-const COLOR_BLACK: Pixel = Pixel::rgb(0x00, 0x00, 0x00);
-const COLOR_SKY: Pixel = Pixel::rgb(0x84, 0xb1, 0xff);
-const COLOR_HIT_Y: Pixel = Pixel::rgb(0x00, 0xff, 0x00);
-const COLOR_HIT_X: Pixel = Pixel::rgb(0xff, 0x00, 0x00);
-const COLOR_HIT_Z: Pixel = Pixel::rgb(0x00, 0x00, 0xff);
+const SETTINGS_FOV: f32 = 80.0;
+const SETTINGS_VIEW_DISTANCE_L2: u32 = 8 + 4;
+
+// the step values are [-1..1] in q22; 22 to fit into the f32's 23 bit mantissa
+const STEP_SCALE_L2: u32 = 22;
+const STEP_SCALE: f32 = (1 << STEP_SCALE_L2) as f32;
 
 pub struct Renderer {
 	framerate_age: std::time::Duration,
@@ -106,18 +118,14 @@ impl Renderer {
 			.unwrap();
 
 		// TODO placeholders
-		let fov = 80.0_f32 / 45.0_f32; // TODO
-		let view_distance: u32 = 10 << 8;
-
+		let fov = SETTINGS_FOV / 45.0; // TODO
+		// pixel size on virtual screen
 		let fov_step = fov / resolution_x.max(resolution_y) as f32;
-		let angle_h = player.angle_h;
-		let angle_v = player.angle_v;
-		let position_y: i16 = player.position_y;
 		let position_x: i32 = player.position_x;
+		let position_y: i32 = player.position_y as i32;
 		let position_z: i32 = player.position_z;
-		// view angle vectors
-		let angle_v_vec = (angle_v.sin(), angle_v.cos());
-		let angle_h_vec = (angle_h.sin(), angle_h.cos());
+		let (angle_v_sin, angle_v_cos) = player.angle_v.sin_cos();
+		let (angle_h_sin, angle_h_cos) = player.angle_h.sin_cos();
 
 		// zauber a pixel buffer from the surface
 		let mut buffer = self.surface.buffer_mut().unwrap();
@@ -130,265 +138,195 @@ impl Renderer {
 		// render rows in parallel
 		pixels.par_chunks_exact_mut(resolution_x).enumerate().for_each(|(canvas_y, line)| {
 			let canvas_y_relative = (resolution_y_h - canvas_y as f32) * fov_step;
-			let step_y_raw = canvas_y_relative * angle_v_vec.1 - angle_v_vec.0;
-			let angle_v = canvas_y_relative * angle_v_vec.0 + angle_v_vec.1;
-			let step_x_center = angle_v * angle_h_vec.0;
-			let step_z_center = angle_v * angle_h_vec.1;
-			let step_y_primary: i8 = 1 - 2 * ((step_y_raw < 0.0) as i8);
-			let step_y_inverse = 1.0 / step_y_raw.abs();
-			let mut dimension_next: u8 = DIMENSION_X;
+			// vertical head rotation
+			let step_y_row = canvas_y_relative * angle_v_cos - angle_v_sin;
+			let step_xz_row = canvas_y_relative * angle_v_sin + angle_v_cos;
+			// apply horizontal head rotation
+			let step_x_center = step_xz_row * angle_h_sin;
+			let step_z_center = step_xz_row * angle_h_cos;
 
-			// render row pixels sequentially
-			for (canvas_x, pixel) in line.iter_mut().enumerate() {
+			// render row pixels sequentially, using dda raymarching
+			'pixels: for (canvas_x, pixel) in line.iter_mut().enumerate() {
 				let canvas_x_relative = (canvas_x as f32 - resolution_x_h) * fov_step;
-				let step_x_raw = step_x_center + canvas_x_relative * angle_h_vec.1;
-				let step_z_raw = step_z_center - canvas_x_relative * angle_h_vec.0;
-				let dimension_offset = dimension_next;
+				// ray direction, yet unnormalized
+				let step_x_raw = step_x_center + canvas_x_relative * angle_h_cos;
+				let step_z_raw = step_z_center - canvas_x_relative * angle_h_sin;
 
-				// black/blue skybox
-				*pixel = if step_y_primary < 0 { COLOR_BLACK } else { COLOR_SKY };
+				// normalize to fixed point
+				let step_inverse = 1.0 / (
+					step_x_raw * step_x_raw +
+					step_y_row * step_y_row +
+					step_z_raw * step_z_raw
+				).sqrt();
+				// direction, in [-1..1] in q22
+				let step_x = (step_x_raw * step_inverse * STEP_SCALE).round() as i32;
+				let step_y = (step_y_row * step_inverse * STEP_SCALE).round() as i32;
+				let step_z = (step_z_raw * step_inverse * STEP_SCALE).round() as i32;
 
-				let mut check_distance_min: u32 = view_distance;
+				// split signs and amounts
+				let step_x_sign: i32 = (step_x > 0) as i32 - (step_x < 0) as i32;
+				let step_y_sign: i32 = (step_y > 0) as i32 - (step_y < 0) as i32;
+				let step_z_sign: i32 = (step_z > 0) as i32 - (step_z < 0) as i32;
+				let step_x_abs = step_x.unsigned_abs() as i32;
+				let step_y_abs = step_y.unsigned_abs() as i32;
+				let step_z_abs = step_z.unsigned_abs() as i32;
 
-				for dimension in 0..3u8 {
-					match (dimension + dimension_offset) % 3 {
-						DIMENSION_Y => {
-							if step_y_raw.abs() < STEP_RAW_MIN {
-								continue;
+				// current position, in full blocks world coordinates
+				let mut check_x_block = position_x >> 8;
+				let mut check_y_block = position_y >> 8;
+				let mut check_z_block = position_z >> 8;
+
+				// current position, in q8 relative to player position, starting at first block boundary
+				let mut check_x_relative = if step_x_sign < 0 {
+					position_x - (check_x_block << 8)
+				} else {
+					((check_x_block + step_x_sign) << 8) - position_x
+				};
+				let mut check_y_relative = if step_y_sign < 0 {
+					position_y - (check_y_block << 8)
+				} else {
+					((check_y_block + step_y_sign) << 8) - position_y
+				};
+				let mut check_z_relative = if step_z_sign < 0 {
+					position_z - (check_z_block << 8)
+				} else {
+					((check_z_block + step_z_sign) << 8) - position_z
+				};
+
+				'march: loop {
+					// escaped world forever?
+					if
+						(check_y_block < 0 && step_y_sign <= 0) ||
+						(check_y_block >= CHUNK_HEIGHT as i32 && step_y_sign >= 0)
+					{
+						break 'march;
+					}
+
+					let face_hit: BlockFace;
+
+					// x boundary is closer than y boundary?
+					if
+						step_x_sign != 0 &&
+						(
+							step_y_sign == 0 ||
+							(check_x_relative as i64 * step_y_abs as i64) <
+							(check_y_relative as i64 * step_x_abs as i64)
+						)
+					{
+						// x boundary is closer than z boundary?
+						if
+							step_z_sign == 0 ||
+							(check_x_relative as i64 * step_z_abs as i64) <
+							(check_z_relative as i64 * step_x_abs as i64)
+						{
+							if
+								(check_x_relative as i64) << STEP_SCALE_L2 >
+								(step_x_abs as i64) << SETTINGS_VIEW_DISTANCE_L2
+							{
+								break 'march;
 							}
 
-							let step_x: i32 = (step_x_raw * step_y_inverse * 256.0).round() as i32;
-							let step_z: i32 = (step_z_raw * step_y_inverse * 256.0).round() as i32;
-
-							let step_diagonal: u32 = (
-								(step_x * step_x) as u32 +
-								(step_z * step_z) as u32 +
-								256u32 * 256u32
-							).sqrt();
-
-							// start position
-							let offset: u8 = (position_y as u8) ^ ((step_y_primary > 0) as u8).wrapping_neg();
-							let mut check_distance: u32 = (step_diagonal * offset as u32) >> 8;
-							if check_distance >= check_distance_min {
-								continue;
-							}
-							let mut check_y = (position_y >> 8) as i8;
-							let mut check_x: i32 = position_x + ((step_x * offset as i32) >> 8);
-							let mut check_z: i32 = position_z + ((step_z * offset as i32) >> 8);
-
-							// add steps until collision or out of range
-							loop {
-								// move on
-								check_y += step_y_primary;
-
-								// check if inside world
-								match
-									(step_y_primary as u8) & 0b100 | // ((step_y_primary < 0) as u8) << 2
-									((check_y >= CHUNK_HEIGHT as i8) as u8) << 1 |
-									(check_y as u8) >> 7 // ((check_y < 0) as u8)
-								{
-									// will never reach a block
-									0b010 | // step_y > 0.0 && check_y >= CHUNK_HEIGHT
-									0b101 => break, // step_y < 0.0 && check_y < 0.0
-
-									// will maybe reach a block later
-									0b001 | // step_y > 0.0 && check_y < 0.0
-									0b110 => {}, // step_y < 0.0 && check_y >= CHUNK_HEIGHT
-
-									// inside world
-									0b000 | 0b100 => {
-										let block = world.block_get(
-											(check_x >> 8) as u16,
-											check_y as u8,
-											(check_z >> 8) as u16,
-										);
-
-										if block != BlockType::Air {
-											// collision
-											*pixel = COLOR_HIT_Y;
-											check_distance_min = check_distance;
-											dimension_next = DIMENSION_Y;
-											break;
-										}
-									},
-
-									0b011 | 0b111 => unreachable!("cannot be above and below world at the same time"),
-
-									_ => unreachable!("max 3 bits"),
-								}
-
-								// no collision yet, move on
-								check_x += step_x;
-								check_z += step_z;
-								check_distance += step_diagonal;
-
-								if check_distance >= check_distance_min {
-									break;
-								}
-							}
-						},
-
-						DIMENSION_X => {
-							if step_x_raw.abs() < STEP_RAW_MIN {
-								continue;
+							check_x_block += step_x_sign;
+							check_x_relative += 1 << 8;
+							face_hit = if step_x_sign < 0 {
+								BlockFace::West
+							} else {
+								BlockFace::East
+							};
+						}
+						// z boundary is closer than x boundary?
+						else {
+							if
+								(check_z_relative as i64) << STEP_SCALE_L2 >
+								(step_z_abs as i64) << SETTINGS_VIEW_DISTANCE_L2
+							{
+								break 'march;
 							}
 
-							let step_x_inverse = 1.0_f32 / step_x_raw.abs();
-							let step_y: i32 = (step_y_raw * step_x_inverse * 256.0).round() as i32;
-							let step_z: i32 = (step_z_raw * step_x_inverse * 256.0).round() as i32;
-
-							let step_diagonal: u32 = (
-								(step_y * step_y) as u32 +
-								(step_z * step_z) as u32 +
-								256u32 * 256u32
-							).sqrt();
-
-							let step_x: i16 = 1 - 2 * ((step_x_raw < 0.0) as i16);
-
-							// start position
-							let offset: u8 = (position_x as u8) ^ ((step_x_raw > 0.0) as u8).wrapping_neg();
-							let mut check_distance: u32 = (step_diagonal * offset as u32) >> 8;
-							if check_distance >= check_distance_min {
-								continue;
-							}
-							let mut check_x = (position_x >> 8) as i16;
-							let mut check_y: i32 = position_y as i32 + ((step_y * offset as i32) >> 8);
-							let mut check_z: i32 = position_z + ((step_z * offset as i32) >> 8);
-
-							// add steps until collision or out of range
-							loop {
-								// move on
-								check_x += step_x;
-
-								// check if inside world
-								match
-									((step_y < 0) as u8) << 2 |
-									((check_y >= (CHUNK_HEIGHT as i32) << 8) as u8) << 1 |
-									((check_y < 0) as u8)
-								{
-									// will never reach a block
-									0b010 | // step_y > 0.0 && check_y >= CHUNK_HEIGHT
-									0b101 => break, // step_y < 0.0 && check_y < 0.0
-
-									// will maybe reach a block later
-									0b001 | // step_y > 0.0 && check_y < 0.0
-									0b110 => {}, // step_y < 0.0 && check_y >= CHUNK_HEIGHT
-
-									// inside world
-									0b000 | 0b100 => {
-										let block = world.block_get(
-											check_x as u16,
-											(check_y >> 8) as u8,
-											(check_z >> 8) as u16,
-										);
-
-										if block != BlockType::Air {
-											// collision
-											*pixel = COLOR_HIT_X;
-											check_distance_min = check_distance;
-											dimension_next = DIMENSION_X;
-											break;
-										}
-									},
-
-									0b011 | 0b111 => unreachable!("cannot be above and below world at the same time"),
-
-									_ => unreachable!("max 3 bits"),
-								}
-
-								// no collision yet, move on
-								check_y += step_y;
-								check_z += step_z;
-								check_distance += step_diagonal;
-
-								if check_distance >= check_distance_min {
-									break;
-								}
-							}
-						},
-
-						DIMENSION_Z => {
-							if step_z_raw.abs() < STEP_RAW_MIN {
-								continue;
+							check_z_block += step_z_sign;
+							check_z_relative += 1 << 8;
+							face_hit = if step_z_sign < 0 {
+								BlockFace::North
+							} else {
+								BlockFace::South
+							};
+						}
+					}
+					// y boundary is closer than x boundary?
+					else {
+						// y boundary is closer than z boundary?
+						if
+							step_y_sign != 0 &&
+							(
+								step_z_sign == 0 ||
+								(check_y_relative as i64 * step_z_abs as i64) <
+								(check_z_relative as i64 * step_y_abs as i64)
+							)
+						{
+							if
+								(check_y_relative as i64) << STEP_SCALE_L2 >
+								(step_y_abs as i64) << SETTINGS_VIEW_DISTANCE_L2
+							{
+								break 'march;
 							}
 
-							let step_z_inverse = 1.0_f32 / step_z_raw.abs();
-							let step_x: i32 = (step_x_raw * step_z_inverse * 256.0).round() as i32;
-							let step_y: i32 = (step_y_raw * step_z_inverse * 256.0).round() as i32;
-
-							let step_diagonal: u32 = (
-								(step_x * step_x) as u32 +
-								(step_y * step_y) as u32 +
-								256u32 * 256u32
-							).sqrt();
-
-							let step_z: i16 = 1 - 2 * ((step_z_raw < 0.0) as i16);
-
-							// start position
-							let offset: u8 = (position_z as u8) ^ ((step_z_raw > 0.0) as u8).wrapping_neg();
-							let mut check_distance: u32 = (step_diagonal * offset as u32) >> 8;
-							if check_distance >= check_distance_min {
-								continue;
+							check_y_block += step_y_sign;
+							check_y_relative += 1 << 8;
+							face_hit = if step_y_sign < 0 {
+								BlockFace::Top
+							} else {
+								BlockFace::Bottom
+							};
+						}
+						// z boundary is closer than y boundary?
+						else {
+							if
+								step_z_sign == 0 ||
+								(check_z_relative as i64) << STEP_SCALE_L2 >
+								(step_z_abs as i64) << SETTINGS_VIEW_DISTANCE_L2
+							{
+								break 'march;
 							}
-							let mut check_x: i32 = position_x + ((step_x * offset as i32) >> 8);
-							let mut check_y: i32 = position_y as i32 + ((step_y * offset as i32) >> 8);
-							let mut check_z = (position_z >> 8) as i16;
 
-							// add steps until collision or out of range
-							loop {
-								// move on
-								check_z += step_z;
+							check_z_block += step_z_sign;
+							check_z_relative += 1 << 8;
+							face_hit = if step_z_sign < 0 {
+								BlockFace::North
+							} else {
+								BlockFace::South
+							};
+						}
+					}
 
-								// check if inside world
-								match
-									((step_y < 0) as u8) << 2 |
-									((check_y >= (CHUNK_HEIGHT as i32) << 8) as u8) << 1 |
-									((check_y < 0) as u8)
-								{
-									// will never reach a block
-									0b010 | // step_y > 0.0 && check_y >= CHUNK_HEIGHT
-									0b101 => break, // step_y < 0.0 && check_y < 0.0
-
-									// will maybe reach a block later
-									0b001 | // step_y > 0.0 && check_y < 0.0
-									0b110 => {}, // step_y < 0.0 && check_y >= CHUNK_HEIGHT
-
-									// inside world
-									0b000 | 0b100 => {
-										let block = world.block_get(
-											(check_x >> 8) as u16,
-											(check_y >> 8) as u8,
-											check_z as u16,
-										);
-
-										if block != BlockType::Air {
-											// collision
-											*pixel = COLOR_HIT_Z;
-											check_distance_min = check_distance;
-											dimension_next = DIMENSION_Z;
-											break;
-										}
-									},
-
-									0b011 | 0b111 => unreachable!("cannot be above and below world at the same time"),
-
-									_ => unreachable!("max 3 bits"),
-								}
-
-								// no collision yet, move on
-								check_x += step_x;
-								check_y += step_y;
-								check_distance += step_diagonal;
-
-								if check_distance >= check_distance_min {
-									break;
-								}
-							}
-						},
-
-						_ => unreachable!("only 3 dimensions"),
+					// inside world?
+					if
+						check_y_block >= 0 &&
+						check_y_block < CHUNK_HEIGHT as i32
+					{
+						let block = world.block_get(
+							check_x_block,
+							check_y_block as u8,
+							check_z_block
+						);
+						if block != BlockType::Air {
+							let texture = Pixel::rgb(0x81, 0x5d, 0x42);
+							*pixel = match face_hit {
+								BlockFace::West | BlockFace::East => texture.scale(0.8),
+								BlockFace::Top => texture,
+								BlockFace::Bottom => texture.scale(0.4),
+								BlockFace::North | BlockFace::South => texture.scale(0.6),
+							};
+							continue 'pixels;
+						}
 					}
 				}
+
+				// no hit, render skybox
+				*pixel = if step_y_row < 0.0 {
+					Pixel::rgb(0x00, 0x00, 0x00)
+				} else {
+					Pixel::rgb(0x84, 0xb1, 0xff)
+				};
 			}
 		});
 
