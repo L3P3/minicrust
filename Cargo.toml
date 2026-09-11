@@ -3,7 +3,7 @@ name = "minicrust"
 authors = ["L3P3 <dev@l3p3.de>"]
 description = "cpu voxel raytracing in rust"
 repository = "https://github.com/L3P3/minicrust"
-version = "0.1.6"
+version = "0.1.7"
 edition = "2024"
 license = "zlib"
 

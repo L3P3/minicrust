@@ -8,41 +8,6 @@ use crate::player;
 
 type SoftSurface = softbuffer::Surface<Rc<Window>, Rc<Window>>;
 
-#[repr(C)]
-#[derive(Clone, Copy)]
-struct Pixel {
-	b: u8,
-	g: u8,
-	r: u8,
-	a: u8,
-}
-
-impl Pixel {
-	#[inline(always)]
-	const fn rgb(r: u8, g: u8, b: u8) -> Self {
-		Self { r, g, b, a: 0x00 }
-	}
-
-	fn scale(&self, factor: f32) -> Self {
-		Self {
-			r: (self.r as f32 * factor).round() as u8,
-			g: (self.g as f32 * factor).round() as u8,
-			b: (self.b as f32 * factor).round() as u8,
-			a: self.a,
-		}
-	}
-}
-
-#[derive(Clone, Copy)]
-enum BlockFace {
-	East,
-	West,
-	Top,
-	Bottom,
-	North,
-	South,
-}
-
 const SETTINGS_FOV: f32 = 80.0;
 const SETTINGS_VIEW_DISTANCE_L2: u32 = 8 + 4;
 
@@ -104,21 +69,20 @@ impl Renderer {
 
 		// screen size
 		let inner_size = window.inner_size();
-		let resolution_x = inner_size.width as usize;
-		let resolution_y = inner_size.height as usize;
-		assert!(resolution_x != 0 && resolution_y != 0, "no window area");
-		let resolution_x_h = (resolution_x >> 1) as f32;
-		let resolution_y_h = (resolution_y >> 1) as f32;
-
 		self.surface
 			.resize(
-				unsafe { std::num::NonZeroU32::new_unchecked(resolution_x as u32) },
-				unsafe { std::num::NonZeroU32::new_unchecked(resolution_y as u32) },
+				std::num::NonZeroU32::new(inner_size.width).expect("no window area"),
+				std::num::NonZeroU32::new(inner_size.height).expect("no window area"),
 			)
 			.unwrap();
 
-		// TODO placeholders
-		let fov = SETTINGS_FOV / 45.0; // TODO
+		let resolution_x = inner_size.width as usize;
+		let resolution_y = inner_size.height as usize;
+		let resolution_x_h = (inner_size.width as f32) * 0.5;
+		let resolution_y_h = (inner_size.height as f32) * 0.5;
+
+		// virtual screen size at unit focal distance, along the longer screen dimension
+		let fov = 2.0 * (SETTINGS_FOV.to_radians() * 0.5).tan();
 		// pixel size on virtual screen
 		let fov_step = fov / resolution_x.max(resolution_y) as f32;
 		let position_x: i32 = player.position_x;
@@ -129,9 +93,9 @@ impl Renderer {
 
 		// zauber a pixel buffer from the surface
 		let mut buffer = self.surface.buffer_mut().unwrap();
-		let pixels: &mut [Pixel] = unsafe {
+		let pixels: &mut [Color] = unsafe {
 			std::slice::from_raw_parts_mut(
-				buffer.as_mut_ptr().cast::<Pixel>(),
+				buffer.as_mut_ptr().cast::<Color>(),
 				buffer.len()
 			)
 		};
@@ -309,12 +273,12 @@ impl Renderer {
 							check_z_block
 						);
 						if block != BlockType::Air {
-							let texture = Pixel::rgb(0x81, 0x5d, 0x42);
+							let color = block_color_get(block);
 							*pixel = match face_hit {
-								BlockFace::West | BlockFace::East => texture.scale(0.8),
-								BlockFace::Top => texture,
-								BlockFace::Bottom => texture.scale(0.4),
-								BlockFace::North | BlockFace::South => texture.scale(0.6),
+								BlockFace::West | BlockFace::East => color.scale((0.8 * 0x100 as f32).round() as u16),
+								BlockFace::Top => color,
+								BlockFace::Bottom => color.scale((0.4 * 0x100 as f32).round() as u16),
+								BlockFace::North | BlockFace::South => color.scale((0.6 * 0x100 as f32).round() as u16),
 							};
 							continue 'pixels;
 						}
@@ -323,9 +287,9 @@ impl Renderer {
 
 				// no hit, render skybox
 				*pixel = if step_y_row < 0.0 {
-					Pixel::rgb(0x00, 0x00, 0x00)
+					Color::rgb(0x00, 0x00, 0x00)
 				} else {
-					Pixel::rgb(0x84, 0xb1, 0xff)
+					Color::rgb(0x84, 0xb1, 0xff)
 				};
 			}
 		});
